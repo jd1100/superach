@@ -1,0 +1,11 @@
+SuperACH
+Copyright 2026 The SuperACH Authors
+
+This product includes software developed at
+The Moov Authors (https://moov.io).
+
+  github.com/moov-io/ach   — Apache-2.0
+  fyne.io/fyne/v2          — BSD-3-Clause
+
+Test data files under testdata/ are derived from the moov-io/ach
+test corpus and remain under the Apache-2.0 license of that project.
