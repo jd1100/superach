@@ -21,6 +21,15 @@ One binary, no runtime dependencies beyond the OS graphics stack. Runs on macOS 
 
 Prereqs: Go 1.25+, a C toolchain, and Fyne's OS build deps ([list](https://docs.fyne.io/started/)).
 
+Fyne depends on `github.com/go-gl/gl`, which is cgo-only — there must be a C compiler on `PATH` in the same shell you run `make` from, otherwise Go silently disables cgo and you get `build constraints exclude all Go files in .../go-gl/gl/v2.1/gl`.
+
+- **Windows (amd64):** install mingw-w64 gcc and put it on `PATH`. Easiest paths:
+  - MSYS2: `pacman -S mingw-w64-x86_64-toolchain`, then run `make` from the "MSYS2 MinGW 64-bit" shell, or add `C:\msys64\mingw64\bin` to your user `PATH`.
+  - or [TDM-GCC](https://jmeubank.github.io/tdm-gcc/) / [w64devkit](https://github.com/skeeto/w64devkit) — any `gcc.exe` on `PATH` works.
+  - Verify from the same shell: `gcc --version` prints a version and `go env CGO_ENABLED` prints `1`.
+- **macOS:** `xcode-select --install`.
+- **Linux:** `gcc` plus the X11/GL packages listed in Fyne's [started guide](https://docs.fyne.io/started/).
+
 ```bash
 make run          # dev run
 make test         # unit tests
