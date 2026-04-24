@@ -99,20 +99,56 @@ func fieldFromError(path string, err error) FieldError {
 }
 
 // Recalculate reruns File.Create to refresh hashes, totals, and control
-// records after a mutation.
+// records after a mutation. Panics inside the moov-io/ach library (e.g. nil
+// ADVControl when a batch's SEC code has been edited to ADV in place) are
+// converted to errors so the GUI stays alive.
 func Recalculate(f *ach.File) error {
 	if f == nil {
 		return nil
 	}
 	for _, b := range f.Batches {
-		if err := b.Create(); err != nil {
+		if err := safeBatchCreate(b); err != nil {
 			return err
 		}
 	}
 	for i := range f.IATBatches {
-		if err := f.IATBatches[i].Create(); err != nil {
+		if err := safeIATBatchCreate(f.IATBatches[i]); err != nil {
 			return err
 		}
 	}
+	return safeCreate(f)
+}
+
+// safeCreate calls f.Create() but converts any panic inside the moov-io/ach
+// library into a friendly error. The library occasionally dereferences nil
+// control records when a file is in a half-valid state (for example, a batch
+// whose SEC code says ADV but was never constructed as an ADV batch). We don't
+// want those bugs to kill the GUI.
+func safeCreate(f *ach.File) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("cannot save file in its current shape (internal library error: %v). "+
+				"This usually means a batch's SEC Code or Service Class doesn't match its "+
+				"underlying batch type. Try Edit → Undo, or remove and re-add the batch", r)
+		}
+	}()
 	return f.Create()
+}
+
+func safeBatchCreate(b ach.Batcher) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("cannot recalculate batch (internal library error: %v)", r)
+		}
+	}()
+	return b.Create()
+}
+
+func safeIATBatchCreate(b ach.IATBatch) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("cannot recalculate IAT batch (internal library error: %v)", r)
+		}
+	}()
+	return b.Create()
 }

@@ -16,8 +16,8 @@ func WriteFile(path string, f *ach.File) error {
 	if f == nil {
 		return fmt.Errorf("nil file")
 	}
-	if err := f.Create(); err != nil {
-		return fmt.Errorf("create: %w", err)
+	if err := safeCreate(f); err != nil {
+		return err
 	}
 	if strings.EqualFold(filepath.Ext(path), ".json") {
 		bs, err := ToJSON(f)
@@ -42,7 +42,7 @@ func WriteBytes(f *ach.File) ([]byte, error) {
 	if f == nil {
 		return nil, fmt.Errorf("nil file")
 	}
-	if err := f.Create(); err != nil {
+	if err := safeCreate(f); err != nil {
 		return nil, err
 	}
 	var buf bytes.Buffer

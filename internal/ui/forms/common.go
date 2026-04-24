@@ -7,13 +7,31 @@ package forms
 
 import (
 	"strconv"
+	"sync/atomic"
 
 	"fyne.io/fyne/v2/widget"
 )
 
+// readOnly is a package-level flag toggled by the UI shell before rendering
+// a form. When true, all entry/select widgets come up disabled and their
+// OnChanged callbacks are skipped. This is the app's "safe view" mode.
+var readOnly atomic.Bool
+
+// SetReadOnly controls whether newly constructed form widgets accept edits.
+// Call this *before* building a form; existing widgets are not retroactively
+// toggled.
+func SetReadOnly(v bool) { readOnly.Store(v) }
+
+// IsReadOnly reports the current read-only state.
+func IsReadOnly() bool { return readOnly.Load() }
+
 func stringEntry(cur string, set func(string)) *widget.Entry {
 	e := widget.NewEntry()
 	e.SetText(cur)
+	if readOnly.Load() {
+		e.Disable()
+		return e
+	}
 	e.OnChanged = set
 	return e
 }
@@ -21,6 +39,10 @@ func stringEntry(cur string, set func(string)) *widget.Entry {
 func intEntry(cur int, set func(int)) *widget.Entry {
 	e := widget.NewEntry()
 	e.SetText(strconv.Itoa(cur))
+	if readOnly.Load() {
+		e.Disable()
+		return e
+	}
 	e.OnChanged = func(s string) {
 		if s == "" {
 			set(0)
@@ -36,6 +58,10 @@ func intEntry(cur int, set func(int)) *widget.Entry {
 func amountEntry(cur int, set func(int)) *widget.Entry {
 	e := widget.NewEntry()
 	e.SetText(centsToDollars(cur))
+	if readOnly.Load() {
+		e.Disable()
+		return e
+	}
 	e.OnChanged = func(s string) {
 		set(dollarsToCents(s))
 	}
@@ -93,5 +119,30 @@ func dollarsToCents(s string) int {
 func selectField(cur string, options []string, set func(string)) *widget.Select {
 	sel := widget.NewSelect(options, set)
 	sel.SetSelected(cur)
+	if readOnly.Load() {
+		sel.OnChanged = nil
+		sel.Disable()
+	}
 	return sel
+}
+
+// readOnlyLabel returns a disabled Entry prefilled with text. Use this for
+// fields that are never editable regardless of mode (e.g. SEC Code, which
+// defines the batch type and cannot be changed in place).
+func readOnlyLabel(text string) *widget.Entry {
+	e := widget.NewEntry()
+	e.SetText(text)
+	e.Disable()
+	return e
+}
+
+// attachSubmit wires the "Save & Recalculate" button on a form, unless the
+// form package is in read-only mode — in which case the submit button is
+// suppressed entirely so the user cannot accidentally mark the file dirty.
+func attachSubmit(form *widget.Form, save func()) {
+	if readOnly.Load() {
+		return
+	}
+	form.OnSubmit = save
+	form.SubmitText = "Save & Recalculate"
 }

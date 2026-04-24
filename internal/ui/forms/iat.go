@@ -35,15 +35,14 @@ func IATBatchHeaderForm(h *ach.IATBatchHeader, save func()) fyne.CanvasObject {
 		widget.NewFormItem("FX Reference", stringEntry(h.ForeignExchangeReference, func(v string) { h.ForeignExchangeReference = v })),
 		widget.NewFormItem("Destination Country (ISO)", stringEntry(h.ISODestinationCountryCode, func(v string) { h.ISODestinationCountryCode = v })),
 		widget.NewFormItem("Originator ID", stringEntry(h.OriginatorIdentification, func(v string) { h.OriginatorIdentification = v })),
-		widget.NewFormItem("SEC Code", stringEntry(h.StandardEntryClassCode, func(v string) { h.StandardEntryClassCode = v })),
+		widget.NewFormItem("SEC Code (fixed)", readOnlyLabel(h.StandardEntryClassCode)),
 		widget.NewFormItem("Company Entry Description", stringEntry(h.CompanyEntryDescription, func(v string) { h.CompanyEntryDescription = v })),
 		widget.NewFormItem("Originating Currency (ISO)", stringEntry(h.ISOOriginatingCurrencyCode, func(v string) { h.ISOOriginatingCurrencyCode = v })),
 		widget.NewFormItem("Destination Currency (ISO)", stringEntry(h.ISODestinationCurrencyCode, func(v string) { h.ISODestinationCurrencyCode = v })),
 		widget.NewFormItem("Effective Entry Date (YYMMDD)", stringEntry(h.EffectiveEntryDate, func(v string) { h.EffectiveEntryDate = v })),
 		widget.NewFormItem("ODFI Identification", stringEntry(h.ODFIIdentification, func(v string) { h.ODFIIdentification = v })),
 	)
-	form.OnSubmit = save
-	form.SubmitText = "Save & Recalculate"
+	attachSubmit(form, save)
 	return form
 }
 
@@ -72,8 +71,7 @@ func IATEntryDetailForm(e *ach.IATEntryDetail, save func()) fyne.CanvasObject {
 		widget.NewFormItem("Trace Number", stringEntry(e.TraceNumber, func(v string) { e.TraceNumber = v })),
 		widget.NewFormItem("Category", stringEntry(e.Category, func(v string) { e.Category = v })),
 	)
-	form.OnSubmit = save
-	form.SubmitText = "Save & Recalculate"
+	attachSubmit(form, save)
 	return form
 }
 
@@ -120,8 +118,7 @@ func addenda10Form(a *ach.Addenda10, save func()) fyne.CanvasObject {
 		widget.NewFormItem("Foreign Trace Number", stringEntry(a.ForeignTraceNumber, func(v string) { a.ForeignTraceNumber = v })),
 		widget.NewFormItem("Name", stringEntry(a.Name, func(v string) { a.Name = v })),
 	)
-	form.OnSubmit = save
-	form.SubmitText = "Save & Recalculate"
+	attachSubmit(form, save)
 	return form
 }
 
@@ -133,8 +130,7 @@ func addenda11Form(a *ach.Addenda11, save func()) fyne.CanvasObject {
 		widget.NewFormItem("Originator Name", stringEntry(a.OriginatorName, func(v string) { a.OriginatorName = v })),
 		widget.NewFormItem("Originator Street", stringEntry(a.OriginatorStreetAddress, func(v string) { a.OriginatorStreetAddress = v })),
 	)
-	form.OnSubmit = save
-	form.SubmitText = "Save & Recalculate"
+	attachSubmit(form, save)
 	return form
 }
 
@@ -146,8 +142,7 @@ func addenda12Form(a *ach.Addenda12, save func()) fyne.CanvasObject {
 		widget.NewFormItem("Originator City/State/Province", stringEntry(a.OriginatorCityStateProvince, func(v string) { a.OriginatorCityStateProvince = v })),
 		widget.NewFormItem("Originator Country/Postal", stringEntry(a.OriginatorCountryPostalCode, func(v string) { a.OriginatorCountryPostalCode = v })),
 	)
-	form.OnSubmit = save
-	form.SubmitText = "Save & Recalculate"
+	attachSubmit(form, save)
 	return form
 }
 
@@ -161,8 +156,7 @@ func addenda13Form(a *ach.Addenda13, save func()) fyne.CanvasObject {
 		widget.NewFormItem("ODFI Identification", stringEntry(a.ODFIIdentification, func(v string) { a.ODFIIdentification = v })),
 		widget.NewFormItem("ODFI Branch Country", stringEntry(a.ODFIBranchCountryCode, func(v string) { a.ODFIBranchCountryCode = v })),
 	)
-	form.OnSubmit = save
-	form.SubmitText = "Save & Recalculate"
+	attachSubmit(form, save)
 	return form
 }
 
@@ -176,8 +170,7 @@ func addenda14Form(a *ach.Addenda14, save func()) fyne.CanvasObject {
 		widget.NewFormItem("RDFI Identification", stringEntry(a.RDFIIdentification, func(v string) { a.RDFIIdentification = v })),
 		widget.NewFormItem("RDFI Branch Country", stringEntry(a.RDFIBranchCountryCode, func(v string) { a.RDFIBranchCountryCode = v })),
 	)
-	form.OnSubmit = save
-	form.SubmitText = "Save & Recalculate"
+	attachSubmit(form, save)
 	return form
 }
 
@@ -189,8 +182,7 @@ func addenda15Form(a *ach.Addenda15, save func()) fyne.CanvasObject {
 		widget.NewFormItem("Receiver ID #", stringEntry(a.ReceiverIDNumber, func(v string) { a.ReceiverIDNumber = v })),
 		widget.NewFormItem("Receiver Street", stringEntry(a.ReceiverStreetAddress, func(v string) { a.ReceiverStreetAddress = v })),
 	)
-	form.OnSubmit = save
-	form.SubmitText = "Save & Recalculate"
+	attachSubmit(form, save)
 	return form
 }
 
@@ -202,8 +194,7 @@ func addenda16Form(a *ach.Addenda16, save func()) fyne.CanvasObject {
 		widget.NewFormItem("Receiver City/State/Province", stringEntry(a.ReceiverCityStateProvince, func(v string) { a.ReceiverCityStateProvince = v })),
 		widget.NewFormItem("Receiver Country/Postal", stringEntry(a.ReceiverCountryPostalCode, func(v string) { a.ReceiverCountryPostalCode = v })),
 	)
-	form.OnSubmit = save
-	form.SubmitText = "Save & Recalculate"
+	attachSubmit(form, save)
 	return form
 }
 
@@ -215,8 +206,7 @@ func addenda17Form(a *ach.Addenda17, save func()) fyne.CanvasObject {
 		widget.NewFormItem("Payment Related Info", stringEntry(a.PaymentRelatedInformation, func(v string) { a.PaymentRelatedInformation = v })),
 		widget.NewFormItem("Sequence #", intEntry(a.SequenceNumber, func(v int) { a.SequenceNumber = v })),
 	)
-	form.OnSubmit = save
-	form.SubmitText = "Save & Recalculate"
+	attachSubmit(form, save)
 	return form
 }
 
@@ -231,7 +221,6 @@ func addenda18Form(a *ach.Addenda18, save func()) fyne.CanvasObject {
 		widget.NewFormItem("Bank Branch Country", stringEntry(a.ForeignCorrespondentBankBranchCountryCode, func(v string) { a.ForeignCorrespondentBankBranchCountryCode = v })),
 		widget.NewFormItem("Sequence #", intEntry(a.SequenceNumber, func(v int) { a.SequenceNumber = v })),
 	)
-	form.OnSubmit = save
-	form.SubmitText = "Save & Recalculate"
+	attachSubmit(form, save)
 	return form
 }

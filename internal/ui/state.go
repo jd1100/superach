@@ -46,6 +46,7 @@ type AppState struct {
 	file      *ach.File
 	path      string
 	dirty     bool
+	readOnly  bool
 	selection string
 	undoStack []*ach.File
 
@@ -53,11 +54,28 @@ type AppState struct {
 }
 
 // NewState returns an empty AppState with a fresh file loaded.
+// The app starts in read-only mode so non-technical users exploring a file
+// cannot accidentally mutate it by clicking around. Toggle via View menu.
 func NewState() *AppState {
-	s := &AppState{}
+	s := &AppState{readOnly: true}
 	s.file = ach.NewFile()
 	s.file.Header = ach.NewFileHeader()
 	return s
+}
+
+// ReadOnly reports whether edits are currently blocked.
+func (s *AppState) ReadOnly() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.readOnly
+}
+
+// SetReadOnly toggles the read-only flag and notifies observers.
+func (s *AppState) SetReadOnly(v bool) {
+	s.mu.Lock()
+	s.readOnly = v
+	s.mu.Unlock()
+	s.emit()
 }
 
 // Subscribe registers a callback fired on every state change. Returns a
@@ -124,12 +142,15 @@ func (s *AppState) SetSelection(p string) {
 	s.emit()
 }
 
-// LoadFile replaces the file (e.g. on Open). Resets dirty and undo.
+// LoadFile replaces the file (e.g. on Open). Resets dirty and undo, and
+// re-locks the file in read-only mode so a freshly-loaded ACH can be
+// browsed safely before the user opts into editing.
 func (s *AppState) LoadFile(f *ach.File, path string) {
 	s.mu.Lock()
 	s.file = f
 	s.path = path
 	s.dirty = false
+	s.readOnly = true
 	s.undoStack = nil
 	s.selection = ""
 	s.mu.Unlock()
@@ -145,6 +166,9 @@ func (s *AppState) MarkSaved(path string) {
 	s.emit()
 }
 
+// ErrReadOnly is returned by Mutate when the app is in read-only mode.
+var ErrReadOnly = fmt.Errorf("file is locked — enable editing from the View menu")
+
 // Mutate snapshots the current file, runs fn against it, then on success
 // recalculates control records, marks dirty, and emits to observers.
 func (s *AppState) Mutate(fn func(*ach.File) error) error {
@@ -152,6 +176,10 @@ func (s *AppState) Mutate(fn func(*ach.File) error) error {
 	if s.file == nil {
 		s.mu.Unlock()
 		return fmt.Errorf("no file loaded")
+	}
+	if s.readOnly {
+		s.mu.Unlock()
+		return ErrReadOnly
 	}
 	snap, err := achio.Clone(s.file)
 	if err != nil {

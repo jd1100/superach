@@ -43,8 +43,7 @@ func EntryDetailForm(e *ach.EntryDetail, save func()) fyne.CanvasObject {
 		widget.NewFormItem("Trace Number", stringEntry(e.TraceNumber, func(v string) { e.TraceNumber = v })),
 		widget.NewFormItem("Category", stringEntry(e.Category, func(v string) { e.Category = v })),
 	)
-	form.OnSubmit = save
-	form.SubmitText = "Save & Recalculate"
+	attachSubmit(form, save)
 	return form
 }
 

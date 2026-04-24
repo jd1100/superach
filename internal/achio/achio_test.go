@@ -175,6 +175,51 @@ func TestClone(t *testing.T) {
 	require.NotEqual(t, f.Header.ImmediateOriginName, c.Header.ImmediateOriginName)
 }
 
+// TestWriteFile_SECSwitchedToADV_NoPanic reproduces the nil-pointer crash the
+// user hit: a PPD batch whose header's SEC code was changed to "ADV" after
+// construction (via the Batch Header form) would make File.Create dereference
+// a nil ADVControl. WriteFile must return an error instead of killing the
+// process.
+func TestWriteFile_SECSwitchedToADV_NoPanic(t *testing.T) {
+	f, err := achio.ReadFile(samplePPD)
+	require.NoError(t, err)
+	require.NotEmpty(t, f.Batches)
+
+	f.Batches[0].GetHeader().StandardEntryClassCode = ach.ADV
+
+	dir := t.TempDir()
+	out := filepath.Join(dir, "out.ach")
+
+	werr := achio.WriteFile(out, f)
+	require.Error(t, werr, "expected friendly error, not a panic")
+	require.Contains(t, werr.Error(), "SEC Code")
+}
+
+// TestWriteBytes_SECSwitchedToADV_NoPanic covers the same crash via the
+// NACHA-bytes serialiser used for clipboard/preview.
+func TestWriteBytes_SECSwitchedToADV_NoPanic(t *testing.T) {
+	f, err := achio.ReadFile(samplePPD)
+	require.NoError(t, err)
+	require.NotEmpty(t, f.Batches)
+
+	f.Batches[0].GetHeader().StandardEntryClassCode = ach.ADV
+
+	_, werr := achio.WriteBytes(f)
+	require.Error(t, werr, "expected friendly error, not a panic")
+}
+
+// TestRecalculate_SECSwitchedToADV_NoPanic covers the post-mutation recalc
+// path that runs after every form edit.
+func TestRecalculate_SECSwitchedToADV_NoPanic(t *testing.T) {
+	f, err := achio.ReadFile(samplePPD)
+	require.NoError(t, err)
+	require.NotEmpty(t, f.Batches)
+
+	f.Batches[0].GetHeader().StandardEntryClassCode = ach.ADV
+
+	require.Error(t, achio.Recalculate(f), "expected friendly error, not a panic")
+}
+
 func TestReturnCodesAndChangeCodes(t *testing.T) {
 	rcs := achio.AllReturnCodes()
 	require.Len(t, rcs, 85)

@@ -27,8 +27,16 @@ func (a *App) buildMenu() *fyne.MainMenu {
 		fyne.NewMenuItem("Quit", func() { a.confirmDiscard(func() { a.fyneApp.Quit() }) }),
 	)
 
+	viewMenu := fyne.NewMenu("View",
+		fyne.NewMenuItem("Toggle Read-only / Editing", a.toggleReadOnly),
+	)
+
 	editMenu := fyne.NewMenu("Edit",
 		fyne.NewMenuItem("Undo", func() {
+			if a.state.ReadOnly() {
+				a.requireEditable()
+				return
+			}
 			if !a.state.Undo() {
 				a.statusLabel.SetText("Nothing to undo.")
 			}
@@ -46,7 +54,7 @@ func (a *App) buildMenu() *fyne.MainMenu {
 		fyne.NewMenuItem("About", func() { dialogs.ShowAbout(a.window) }),
 	)
 
-	return fyne.NewMainMenu(fileMenu, editMenu, helpMenu)
+	return fyne.NewMainMenu(fileMenu, viewMenu, editMenu, helpMenu)
 }
 
 func (a *App) openDialog() {
@@ -139,6 +147,9 @@ func (a *App) exportCSVDialog() {
 }
 
 func (a *App) importCSVDialog() {
+	if !a.requireEditable() {
+		return
+	}
 	d := dialog.NewFileOpen(func(u fyne.URIReadCloser, err error) {
 		if err != nil || u == nil {
 			return
@@ -163,6 +174,9 @@ func (a *App) importCSVDialog() {
 }
 
 func (a *App) newBatchDialog() {
+	if !a.requireEditable() {
+		return
+	}
 	f := a.state.File()
 	if f == nil {
 		return
@@ -181,6 +195,9 @@ func (a *App) newBatchDialog() {
 }
 
 func (a *App) newEntryInSelection() {
+	if !a.requireEditable() {
+		return
+	}
 	n, ok := Resolve(a.state.Selection())
 	if !ok || (n.Kind != NodeBatch && n.Kind != NodeEntry) {
 		dialog.ShowInformation("Select a batch or entry first", "Pick a batch or one of its entries in the tree, then try again.", a.window)
@@ -200,6 +217,9 @@ func (a *App) newEntryInSelection() {
 }
 
 func (a *App) removeSelected() {
+	if !a.requireEditable() {
+		return
+	}
 	n, ok := Resolve(a.state.Selection())
 	if !ok || n.Kind == NodeFile {
 		dialog.ShowInformation("Nothing to remove", "Select a batch, entry, or addenda first.", a.window)
@@ -220,6 +240,9 @@ func (a *App) removeSelected() {
 }
 
 func (a *App) newReturnDialog() {
+	if !a.requireEditable() {
+		return
+	}
 	n, ok := Resolve(a.state.Selection())
 	if !ok || n.Kind != NodeEntry {
 		dialog.ShowInformation("Select a forward entry first", "The return wizard needs an existing EntryDetail selected.", a.window)
@@ -245,6 +268,9 @@ func (a *App) newReturnDialog() {
 }
 
 func (a *App) newNOCDialog() {
+	if !a.requireEditable() {
+		return
+	}
 	n, ok := Resolve(a.state.Selection())
 	if !ok || n.Kind != NodeEntry {
 		dialog.ShowInformation("Select a forward entry first", "The NOC wizard needs an existing EntryDetail selected.", a.window)
