@@ -19,8 +19,7 @@ func Addenda05Form(a *ach.Addenda05, save func()) fyne.CanvasObject {
 		widget.NewFormItem("Sequence #", intEntry(a.SequenceNumber, func(v int) { a.SequenceNumber = v })),
 		widget.NewFormItem("Entry Detail Seq #", intEntry(a.EntryDetailSequenceNumber, func(v int) { a.EntryDetailSequenceNumber = v })),
 	)
-	form.OnSubmit = save
-	form.SubmitText = "Save & Recalculate"
+	attachSubmit(form, save)
 	return form
 }
 
@@ -55,8 +54,7 @@ func Addenda98Form(a *ach.Addenda98, save func()) fyne.CanvasObject {
 		widget.NewFormItem("Corrected Data (29)", stringEntry(a.CorrectedData, func(v string) { a.CorrectedData = v })),
 		widget.NewFormItem("Trace Number", stringEntry(a.TraceNumber, func(v string) { a.TraceNumber = v })),
 	)
-	form.OnSubmit = save
-	form.SubmitText = "Save & Recalculate"
+	attachSubmit(form, save)
 	return form
 }
 
@@ -92,7 +90,6 @@ func Addenda99Form(a *ach.Addenda99, save func()) fyne.CanvasObject {
 		widget.NewFormItem("Addenda Information", stringEntry(a.AddendaInformation, func(v string) { a.AddendaInformation = v })),
 		widget.NewFormItem("Trace Number", stringEntry(a.TraceNumber, func(v string) { a.TraceNumber = v })),
 	)
-	form.OnSubmit = save
-	form.SubmitText = "Save & Recalculate"
+	attachSubmit(form, save)
 	return form
 }

@@ -19,7 +19,6 @@ func FileHeaderForm(h *ach.FileHeader, save func()) fyne.CanvasObject {
 		widget.NewFormItem("File ID Modifier", stringEntry(h.FileIDModifier, func(v string) { h.FileIDModifier = v })),
 		widget.NewFormItem("Reference Code", stringEntry(h.ReferenceCode, func(v string) { h.ReferenceCode = v })),
 	)
-	form.OnSubmit = save
-	form.SubmitText = "Save & Recalculate"
+	attachSubmit(form, save)
 	return form
 }

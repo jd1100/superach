@@ -16,6 +16,7 @@ import (
 type Detail struct {
 	state     *AppState
 	container *fyne.Container
+	lastNode  Node
 }
 
 // NewDetail wires the detail pane up to the state so it re-renders on change.
@@ -31,7 +32,12 @@ func (d *Detail) CanvasObject() fyne.CanvasObject { return d.container }
 // Render swaps the detail form to match node n.
 func (d *Detail) Render(n Node) { d.render(n) }
 
+// RerenderCurrent rebuilds the currently-visible form. Used after a mode
+// toggle (read-only ↔ editing) so widgets reflect the new state.
+func (d *Detail) RerenderCurrent() { d.render(d.lastNode) }
+
 func (d *Detail) render(n Node) {
+	d.lastNode = n
 	f := d.state.File()
 	if f == nil {
 		d.swap(widget.NewLabel("No file loaded."))
@@ -39,6 +45,9 @@ func (d *Detail) render(n Node) {
 	}
 
 	save := func() {
+		if d.state.ReadOnly() {
+			return
+		}
 		_ = d.state.Mutate(func(_ *ach.File) error { return nil })
 	}
 

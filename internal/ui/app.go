@@ -14,6 +14,7 @@ import (
 	"github.com/moov-io/ach"
 
 	"github.com/jd1100/superach/internal/achio"
+	"github.com/jd1100/superach/internal/ui/forms"
 )
 
 // App is the top-level Fyne application shell.
@@ -47,6 +48,10 @@ func NewApp() *App {
 		statusLabel: widget.NewLabel("Ready."),
 	}
 
+	// Sync the forms package with the initial read-only flag before any
+	// form is built so widgets come up disabled from the first render.
+	forms.SetReadOnly(state.ReadOnly())
+
 	a.detail = NewDetail(state)
 	a.tree = BuildTree(state, func(n Node) { a.detail.Render(n) })
 	a.errorList = widget.NewList(
@@ -61,6 +66,7 @@ func NewApp() *App {
 	)
 
 	state.Subscribe(func() {
+		forms.SetReadOnly(state.ReadOnly())
 		a.refreshTitle()
 		a.refreshErrors()
 	})
@@ -94,7 +100,38 @@ func (a *App) refreshTitle() {
 	if a.state.Dirty() {
 		mark = " •"
 	}
-	a.window.SetTitle(fmt.Sprintf("SuperACH — %s%s", name, mark))
+	mode := "🔒 Read-only"
+	if !a.state.ReadOnly() {
+		mode = "✏️ Editing"
+	}
+	a.window.SetTitle(fmt.Sprintf("SuperACH — %s%s  —  %s", name, mark, mode))
+}
+
+// toggleReadOnly flips the edit-lock. If the user is exiting edit mode with
+// unsaved changes we keep the changes — we just stop accepting new ones.
+func (a *App) toggleReadOnly() {
+	next := !a.state.ReadOnly()
+	a.state.SetReadOnly(next)
+	// Force the currently-open detail pane to rebuild with the new mode.
+	a.detail.RerenderCurrent()
+	if next {
+		a.statusLabel.SetText("Read-only mode — View → Enable Editing to make changes.")
+	} else {
+		a.statusLabel.SetText("Editing enabled. Be careful: every keystroke updates the file.")
+	}
+}
+
+// requireEditable shows a dialog explaining read-only mode and returns false
+// if edits are currently blocked.
+func (a *App) requireEditable() bool {
+	if !a.state.ReadOnly() {
+		return true
+	}
+	dialog.ShowInformation("File is locked",
+		"The file is in read-only mode so you can browse without accidentally changing anything.\n\n"+
+			"Choose View → Enable Editing to make changes.",
+		a.window)
+	return false
 }
 
 func (a *App) refreshErrors() {
