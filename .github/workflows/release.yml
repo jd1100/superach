@@ -3,6 +3,7 @@ name: Release
 on:
   push:
     tags: ['v*']
+    branches: ['release/v*']
 
 permissions:
   contents: write
@@ -33,10 +34,15 @@ jobs:
           path: superach-darwin-${{ matrix.arch }}.zip
 
   linux:
-    runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        arch: [amd64]
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -94,8 +100,20 @@ jobs:
           find dist -type f \( -name '*.zip' -o -name '*.tar.gz' \) -exec cp {} release/ \;
           cd release && sha256sum * > SHA256SUMS
           ls -la
+      - name: Derive release tag
+        id: tag
+        run: |
+          case "$GITHUB_REF" in
+            refs/tags/*)          tag="$GITHUB_REF_NAME" ;;
+            refs/heads/release/*) tag="${GITHUB_REF_NAME#release/}" ;;
+            *) echo "unsupported ref $GITHUB_REF" >&2; exit 1 ;;
+          esac
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: ${{ steps.tag.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           files: |
             release/*.zip
             release/*.tar.gz
