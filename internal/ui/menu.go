@@ -7,6 +7,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/storage"
 	"github.com/moov-io/ach"
 
@@ -14,40 +15,65 @@ import (
 	"github.com/jd1100/superach/internal/ui/dialogs"
 )
 
+// menuItem wires a labelled action with its shortcut on the menu *and* on
+// the window canvas in one place, so the displayed accelerator can never
+// drift from the binding that actually fires it. Pass a nil shortcut to
+// skip the canvas binding (items exposed only in the menu).
+func (a *App) menuItem(label string, do func(), shortcut fyne.Shortcut) *fyne.MenuItem {
+	m := fyne.NewMenuItem(label, do)
+	if shortcut != nil {
+		m.Shortcut = shortcut
+		if c := a.window.Canvas(); c != nil {
+			c.AddShortcut(shortcut, func(fyne.Shortcut) { do() })
+		}
+	}
+	return m
+}
+
+func ctrlShortcut(key fyne.KeyName) *desktop.CustomShortcut {
+	return &desktop.CustomShortcut{KeyName: key, Modifier: fyne.KeyModifierControl}
+}
+
 func (a *App) buildMenu() *fyne.MainMenu {
 	fileMenu := fyne.NewMenu("File",
-		fyne.NewMenuItem("Open…", a.openDialog),
-		fyne.NewMenuItem("Save", a.saveCurrent),
-		fyne.NewMenuItem("Save As…", a.saveAsDialog),
+		a.menuItem("Open…", a.openDialog, ctrlShortcut(fyne.KeyO)),
+		a.buildRecentMenuItem(),
+		a.menuItem("Save", a.saveCurrent, ctrlShortcut(fyne.KeyS)),
+		a.menuItem("Save As…", a.saveAsDialog,
+			&desktop.CustomShortcut{KeyName: fyne.KeyS, Modifier: fyne.KeyModifierControl | fyne.KeyModifierShift}),
 		fyne.NewMenuItemSeparator(),
-		fyne.NewMenuItem("Export JSON…", a.exportJSONDialog),
-		fyne.NewMenuItem("Export CSV…", a.exportCSVDialog),
-		fyne.NewMenuItem("Import CSV…", a.importCSVDialog),
+		a.menuItem("Export JSON…", a.exportJSONDialog, nil),
+		a.menuItem("Export CSV…", a.exportCSVDialog, nil),
+		a.menuItem("Import CSV…", a.importCSVDialog, nil),
 		fyne.NewMenuItemSeparator(),
-		fyne.NewMenuItem("Quit", func() { a.confirmDiscard(func() { a.fyneApp.Quit() }) }),
+		a.menuItem("Quit", func() { a.confirmDiscard(func() { a.fyneApp.Quit() }) }, ctrlShortcut(fyne.KeyQ)),
 	)
 
 	viewMenu := fyne.NewMenu("View",
-		fyne.NewMenuItem("Toggle Read-only / Editing", a.toggleReadOnly),
+		a.menuItem("Toggle Read-only / Editing", a.toggleReadOnly, ctrlShortcut(fyne.KeyE)),
+		a.menuItem("Focus Search", a.focusSearch, ctrlShortcut(fyne.KeyF)),
 	)
 
+	undo := func() {
+		if a.state.ReadOnly() {
+			a.requireEditable()
+			return
+		}
+		if !a.state.Undo() {
+			a.statusLabel.SetText("Nothing to undo.")
+		}
+	}
+
 	editMenu := fyne.NewMenu("Edit",
-		fyne.NewMenuItem("Undo", func() {
-			if a.state.ReadOnly() {
-				a.requireEditable()
-				return
-			}
-			if !a.state.Undo() {
-				a.statusLabel.SetText("Nothing to undo.")
-			}
-		}),
+		a.menuItem("Undo", undo, &fyne.ShortcutUndo{}),
 		fyne.NewMenuItemSeparator(),
-		fyne.NewMenuItem("New Batch…", a.newBatchDialog),
-		fyne.NewMenuItem("New Entry in Selected Batch", a.newEntryInSelection),
-		fyne.NewMenuItem("Remove Selected", a.removeSelected),
+		a.menuItem("New Batch…", a.newBatchDialog, ctrlShortcut(fyne.KeyB)),
+		a.menuItem("New Entry in Selected Batch", a.newEntryInSelection, ctrlShortcut(fyne.KeyN)),
+		a.menuItem("Remove Selected", a.removeSelected,
+			&desktop.CustomShortcut{KeyName: fyne.KeyDelete}),
 		fyne.NewMenuItemSeparator(),
-		fyne.NewMenuItem("New Return from Selected Entry…", a.newReturnDialog),
-		fyne.NewMenuItem("New NOC from Selected Entry…", a.newNOCDialog),
+		a.menuItem("New Return from Selected Entry…", a.newReturnDialog, nil),
+		a.menuItem("New NOC from Selected Entry…", a.newNOCDialog, nil),
 	)
 
 	helpMenu := fyne.NewMenu("Help",
@@ -55,6 +81,35 @@ func (a *App) buildMenu() *fyne.MainMenu {
 	)
 
 	return fyne.NewMainMenu(fileMenu, viewMenu, editMenu, helpMenu)
+}
+
+func (a *App) focusSearch() {
+	if a.searchEntry != nil {
+		a.window.Canvas().Focus(a.searchEntry)
+	}
+}
+
+// buildRecentMenuItem produces the "Open Recent" submenu. Fyne reuses the
+// MenuItem.ChildMenu field for submenus, so we rebuild it eagerly each time
+// the menu is requested.
+func (a *App) buildRecentMenuItem() *fyne.MenuItem {
+	recents := a.state.RecentFiles()
+	item := fyne.NewMenuItem("Open Recent", nil)
+	if len(recents) == 0 {
+		sub := fyne.NewMenu("", fyne.NewMenuItem("(none)", nil))
+		sub.Items[0].Disabled = true
+		item.ChildMenu = sub
+		return item
+	}
+	items := make([]*fyne.MenuItem, 0, len(recents))
+	for _, p := range recents {
+		p := p
+		items = append(items, fyne.NewMenuItem(p, func() {
+			a.confirmDiscard(func() { a.loadPath(p) })
+		}))
+	}
+	item.ChildMenu = fyne.NewMenu("", items...)
+	return item
 }
 
 func (a *App) openDialog() {
@@ -95,55 +150,75 @@ func (a *App) saveAsDialog() {
 }
 
 func (a *App) exportJSONDialog() {
-	f := a.state.File()
-	if f == nil {
-		return
-	}
-	d := dialog.NewFileSave(func(u fyne.URIWriteCloser, err error) {
-		if err != nil || u == nil {
-			return
-		}
-		defer u.Close()
-		bs, jerr := achio.ToJSON(f)
-		if jerr != nil {
-			dialog.ShowError(jerr, a.window)
-			return
-		}
-		if _, werr := u.Write(bs); werr != nil {
-			dialog.ShowError(werr, a.window)
-			return
-		}
-		a.statusLabel.SetText("Exported JSON: " + u.URI().Name())
-	}, a.window)
-	d.SetFilter(storage.NewExtensionFileFilter([]string{".json"}))
-	d.SetFileName("export.json")
-	d.Show()
+	a.runExport("JSON", "export.json",
+		storage.NewExtensionFileFilter([]string{".json"}),
+		func(f *ach.File) ([]byte, error) { return achio.ToJSON(f) })
 }
 
 func (a *App) exportCSVDialog() {
+	a.runExport("CSV", "entries.csv", csvFilter(), func(f *ach.File) ([]byte, error) {
+		var buf bytes.Buffer
+		if err := achio.EntriesToCSV(&buf, f); err != nil {
+			return nil, err
+		}
+		return buf.Bytes(), nil
+	})
+}
+
+// runExport drives the export flow for both JSON and CSV: validate first,
+// confirm if there are errors, then open a save dialog and write the bytes
+// produced by encode.
+func (a *App) runExport(kind, defaultName string, filter storage.FileFilter, encode func(*ach.File) ([]byte, error)) {
 	f := a.state.File()
 	if f == nil {
 		return
 	}
-	d := dialog.NewFileSave(func(u fyne.URIWriteCloser, err error) {
-		if err != nil || u == nil {
-			return
+	a.confirmExportWhenInvalid(kind, func() {
+		d := dialog.NewFileSave(func(u fyne.URIWriteCloser, err error) {
+			if err != nil || u == nil {
+				return
+			}
+			defer u.Close()
+			bs, eerr := encode(f)
+			if eerr != nil {
+				dialog.ShowError(eerr, a.window)
+				return
+			}
+			if _, werr := u.Write(bs); werr != nil {
+				dialog.ShowError(werr, a.window)
+				return
+			}
+			a.statusLabel.SetText("Exported " + kind + ": " + u.URI().Name())
+		}, a.window)
+		d.SetFilter(filter)
+		d.SetFileName(defaultName)
+		d.Show()
+	})
+}
+
+// confirmExportWhenInvalid warns if the file has validation errors so a
+// user doesn't silently ship broken data to a downstream system.
+func (a *App) confirmExportWhenInvalid(kind string, onContinue func()) {
+	f := a.state.File()
+	if f == nil {
+		onContinue()
+		return
+	}
+	errs, _ := achio.ValidateFile(f)
+	if len(errs) == 0 {
+		onContinue()
+		return
+	}
+	first := errs[0].Error()
+	if len(errs) > 1 {
+		first = fmt.Sprintf("%s (+%d more)", first, len(errs)-1)
+	}
+	msg := fmt.Sprintf("This file has %d validation error(s) — the %s export will include them.\n\nFirst error: %s\n\nExport anyway?", len(errs), kind, first)
+	dialog.ShowConfirm("Export file with validation errors?", msg, func(ok bool) {
+		if ok {
+			onContinue()
 		}
-		defer u.Close()
-		var buf bytes.Buffer
-		if cerr := achio.EntriesToCSV(&buf, f); cerr != nil {
-			dialog.ShowError(cerr, a.window)
-			return
-		}
-		if _, werr := u.Write(buf.Bytes()); werr != nil {
-			dialog.ShowError(werr, a.window)
-			return
-		}
-		a.statusLabel.SetText("Exported CSV: " + u.URI().Name())
 	}, a.window)
-	d.SetFilter(csvFilter())
-	d.SetFileName("entries.csv")
-	d.Show()
 }
 
 func (a *App) importCSVDialog() {
@@ -225,18 +300,26 @@ func (a *App) removeSelected() {
 		dialog.ShowInformation("Nothing to remove", "Select a batch, entry, or addenda first.", a.window)
 		return
 	}
-	dialog.ShowConfirm("Remove record?", "This cannot be undone without Edit → Undo.", func(confirm bool) {
-		if !confirm {
-			return
-		}
-		if err := a.state.Mutate(func(file *ach.File) error {
-			return removeAtNode(file, n)
-		}); err != nil {
-			dialog.ShowError(err, a.window)
-			return
-		}
-		a.statusLabel.SetText("Removed record")
-	}, a.window)
+	summary := labelFor(a.state.File(), Encode(n))
+	undoHint := "You can reverse this with Edit → Undo (Ctrl+Z)."
+	if a.state.UndoAtCap() {
+		undoHint = "Undo history is at its cap — this removal may not be reversible. " +
+			"Save a backup first if the record matters."
+	}
+	dialog.ShowConfirm("Remove this record?",
+		fmt.Sprintf("Remove %s?\n\n%s", summary, undoHint),
+		func(confirm bool) {
+			if !confirm {
+				return
+			}
+			if err := a.state.Mutate(func(file *ach.File) error {
+				return removeAtNode(file, n)
+			}); err != nil {
+				dialog.ShowError(err, a.window)
+				return
+			}
+			a.statusLabel.SetText("Removed " + summary)
+		}, a.window)
 }
 
 func (a *App) newReturnDialog() {

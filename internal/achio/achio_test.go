@@ -220,6 +220,68 @@ func TestRecalculate_SECSwitchedToADV_NoPanic(t *testing.T) {
 	require.Error(t, achio.Recalculate(f), "expected friendly error, not a panic")
 }
 
+func TestImportCSV_RejectsBadAmount(t *testing.T) {
+	// A typo in AmountCents ("100X") used to silently convert to 0 cents,
+	// shipping a $0 payment. The import must now fail loudly with row context.
+	src, err := achio.ReadFile(samplePPD)
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	require.NoError(t, achio.EntriesToCSV(&buf, src))
+
+	// Corrupt the first data row's AmountCents (header is csvHeader).
+	lines := bytes.Split(buf.Bytes(), []byte("\n"))
+	require.Greater(t, len(lines), 2)
+	header := string(lines[0])
+	require.Contains(t, header, "AmountCents")
+	// Locate AmountCents column index.
+	cols := bytes.Split(lines[0], []byte(","))
+	col := -1
+	for i, c := range cols {
+		if string(c) == "AmountCents" {
+			col = i
+			break
+		}
+	}
+	require.GreaterOrEqual(t, col, 0)
+	row1 := bytes.Split(lines[1], []byte(","))
+	row1[col] = []byte("100X")
+	lines[1] = bytes.Join(row1, []byte(","))
+
+	_, ierr := achio.ImportCSV(bytes.NewReader(bytes.Join(lines, []byte("\n"))), nil,
+		src.Header.ImmediateOrigin, src.Header.ImmediateOriginName,
+		src.Header.ImmediateDestination, src.Header.ImmediateDestinationName)
+	require.Error(t, ierr, "expected parse error on bad AmountCents")
+	require.Contains(t, ierr.Error(), "AmountCents")
+	require.Contains(t, ierr.Error(), "row 2") // 1-based CSV line number
+}
+
+func TestImportCSV_RejectsEmptyAmount(t *testing.T) {
+	src, err := achio.ReadFile(samplePPD)
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	require.NoError(t, achio.EntriesToCSV(&buf, src))
+
+	lines := bytes.Split(buf.Bytes(), []byte("\n"))
+	cols := bytes.Split(lines[0], []byte(","))
+	col := -1
+	for i, c := range cols {
+		if string(c) == "AmountCents" {
+			col = i
+			break
+		}
+	}
+	row1 := bytes.Split(lines[1], []byte(","))
+	row1[col] = []byte("")
+	lines[1] = bytes.Join(row1, []byte(","))
+
+	_, ierr := achio.ImportCSV(bytes.NewReader(bytes.Join(lines, []byte("\n"))), nil,
+		src.Header.ImmediateOrigin, src.Header.ImmediateOriginName,
+		src.Header.ImmediateDestination, src.Header.ImmediateDestinationName)
+	require.Error(t, ierr, "expected error on empty AmountCents")
+}
+
 func TestReturnCodesAndChangeCodes(t *testing.T) {
 	rcs := achio.AllReturnCodes()
 	require.Len(t, rcs, 85)

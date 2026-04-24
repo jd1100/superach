@@ -41,14 +41,22 @@ const (
 
 // AppState carries the open file plus selection, dirty/undo bookkeeping.
 // All mutations should go through methods so observers fire.
+//
+// Dirty tracking uses a monotonic mutation count compared against a save
+// point. When the undo stack overflows the cap we can no longer reach the
+// saved state via Undo, so savePointReachable flips false; once the user
+// saves again it re-anchors on the current mutation count.
 type AppState struct {
-	mu        sync.RWMutex
-	file      *ach.File
-	path      string
-	dirty     bool
-	readOnly  bool
-	selection string
-	undoStack []*ach.File
+	mu                 sync.RWMutex
+	file               *ach.File
+	path               string
+	mutCount           int
+	savedCount         int
+	savePointReachable bool
+	readOnly           bool
+	selection          string
+	undoStack          []*ach.File
+	recentFiles        []string
 
 	listeners []func()
 }
@@ -124,7 +132,10 @@ func (s *AppState) Path() string {
 func (s *AppState) Dirty() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.dirty
+	if !s.savePointReachable {
+		return true
+	}
+	return s.mutCount != s.savedCount
 }
 
 // Selection returns the currently-selected tree path.
@@ -149,11 +160,14 @@ func (s *AppState) LoadFile(f *ach.File, path string) {
 	s.mu.Lock()
 	s.file = f
 	s.path = path
-	s.dirty = false
+	s.mutCount = 0
+	s.savedCount = 0
+	s.savePointReachable = true
 	s.readOnly = true
 	s.undoStack = nil
 	s.selection = ""
 	s.mu.Unlock()
+	s.rememberRecent(path)
 	s.emit()
 }
 
@@ -161,7 +175,52 @@ func (s *AppState) LoadFile(f *ach.File, path string) {
 func (s *AppState) MarkSaved(path string) {
 	s.mu.Lock()
 	s.path = path
-	s.dirty = false
+	s.savedCount = s.mutCount
+	s.savePointReachable = true
+	s.mu.Unlock()
+	s.rememberRecent(path)
+	s.emit()
+}
+
+// rememberRecent pushes path onto the MRU list (most-recent first, deduped,
+// capped at 8 entries). Empty paths are ignored; a path that's already at
+// the head is a no-op so repeated saves don't thrash observers.
+func (s *AppState) rememberRecent(path string) {
+	if path == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.recentFiles) > 0 && s.recentFiles[0] == path {
+		return
+	}
+	out := make([]string, 0, len(s.recentFiles)+1)
+	out = append(out, path)
+	for _, p := range s.recentFiles {
+		if p == path {
+			continue
+		}
+		out = append(out, p)
+		if len(out) >= 8 {
+			break
+		}
+	}
+	s.recentFiles = out
+}
+
+// RecentFiles returns the MRU list (most-recent first).
+func (s *AppState) RecentFiles() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]string, len(s.recentFiles))
+	copy(out, s.recentFiles)
+	return out
+}
+
+// SetRecentFiles seeds the MRU list (e.g. from Fyne preferences on startup).
+func (s *AppState) SetRecentFiles(paths []string) {
+	s.mu.Lock()
+	s.recentFiles = append([]string(nil), paths...)
 	s.mu.Unlock()
 	s.emit()
 }
@@ -171,6 +230,13 @@ var ErrReadOnly = fmt.Errorf("file is locked — enable editing from the View me
 
 // Mutate snapshots the current file, runs fn against it, then on success
 // recalculates control records, marks dirty, and emits to observers.
+//
+// If the mutation function returns an error, the file is rolled back to the
+// pre-mutation snapshot so the UI is never stuck in a half-applied state.
+// If Recalculate() errors after a successful mutation (e.g. the moov-io
+// library rejects the new shape), the error is returned to the caller so the
+// UI can surface it — the mutation is still applied and the snapshot is kept
+// on the undo stack so the user can Undo out.
 func (s *AppState) Mutate(fn func(*ach.File) error) error {
 	s.mu.Lock()
 	if s.file == nil {
@@ -189,22 +255,32 @@ func (s *AppState) Mutate(fn func(*ach.File) error) error {
 	s.mu.Unlock()
 
 	if err := fn(s.file); err != nil {
+		// Mutation failed before anything was committed. Roll the pointer
+		// back to the snapshot so later reads see a clean file.
+		s.mu.Lock()
+		s.file = snap
+		s.mu.Unlock()
 		return err
 	}
 
 	s.mu.Lock()
 	s.undoStack = append(s.undoStack, snap)
 	if len(s.undoStack) > maxUndo {
+		// Dropping the oldest snapshot means we can no longer reach the
+		// saved state via Undo; the file stays dirty until the next save.
 		s.undoStack = s.undoStack[1:]
+		s.savePointReachable = false
 	}
-	s.dirty = true
+	s.mutCount++
 	s.mu.Unlock()
-	_ = achio.Recalculate(s.file)
+	recalcErr := achio.Recalculate(s.file)
 	s.emit()
-	return nil
+	return recalcErr
 }
 
-// Undo restores the most recent snapshot.
+// Undo restores the most recent snapshot. Returns true iff something was
+// undone. Dirty() is recomputed from the mutation count, so undoing back to
+// the saved state correctly reports clean.
 func (s *AppState) Undo() bool {
 	s.mu.Lock()
 	if len(s.undoStack) == 0 {
@@ -214,10 +290,19 @@ func (s *AppState) Undo() bool {
 	prev := s.undoStack[len(s.undoStack)-1]
 	s.undoStack = s.undoStack[:len(s.undoStack)-1]
 	s.file = prev
-	s.dirty = true
+	s.mutCount--
 	s.mu.Unlock()
 	s.emit()
 	return true
+}
+
+// UndoAtCap reports whether the undo stack has reached maxUndo; used by the
+// remove-confirm dialog to stop promising "Undo will save you" when the
+// next mutation will drop an older snapshot.
+func (s *AppState) UndoAtCap() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.undoStack) >= maxUndo
 }
 
 // Resolve decodes a tree path into a typed Node.

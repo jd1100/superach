@@ -128,13 +128,19 @@ func ImportCSV(r io.Reader, into *ach.File, originRouting, originName, destRouti
 	type key struct {
 		sec, companyID, companyName, effective string
 	}
-	groups := map[key][]map[string]string{}
+	// rowWithLine keeps the original CSV line number (1-based, as Excel shows
+	// it) so error messages can point the user at the exact row to fix.
+	type rowWithLine struct {
+		m    map[string]string
+		line int
+	}
+	groups := map[key][]rowWithLine{}
 	order := []key{}
-	for _, row := range rows[1:] {
+	for i, row := range rows[1:] {
 		m := map[string]string{}
-		for col, i := range idx {
-			if i >= 0 && i < len(row) {
-				m[col] = row[i]
+		for col, ci := range idx {
+			if ci >= 0 && ci < len(row) {
+				m[col] = row[ci]
 			}
 		}
 		k := key{
@@ -146,7 +152,7 @@ func ImportCSV(r io.Reader, into *ach.File, originRouting, originName, destRouti
 		if _, ok := groups[k]; !ok {
 			order = append(order, k)
 		}
-		groups[k] = append(groups[k], m)
+		groups[k] = append(groups[k], rowWithLine{m: m, line: i + 2})
 	}
 
 	nextBatchNum := nextBatchNumber(into)
@@ -166,9 +172,14 @@ func ImportCSV(r io.Reader, into *ach.File, originRouting, originName, destRouti
 		if err != nil {
 			return nil, fmt.Errorf("new %s batch: %w", k.sec, err)
 		}
-		for _, row := range groups[k] {
+		for _, r := range groups[k] {
+			row := r.m
 			e := ach.NewEntryDetail()
-			e.TransactionCode, _ = strconv.Atoi(row["TransactionCode"])
+			tc, err := parseIntStrict(row["TransactionCode"])
+			if err != nil {
+				return nil, fmt.Errorf("row %d: TransactionCode %q: %w", r.line, row["TransactionCode"], err)
+			}
+			e.TransactionCode = tc
 			e.RDFIIdentification = row["RDFIIdentification"]
 			if row["CheckDigit"] == "" {
 				cd := ach.CalculateCheckDigit(row["RDFIIdentification"])
@@ -179,7 +190,11 @@ func ImportCSV(r io.Reader, into *ach.File, originRouting, originName, destRouti
 				e.CheckDigit = row["CheckDigit"]
 			}
 			e.DFIAccountNumber = row["DFIAccountNumber"]
-			e.Amount, _ = strconv.Atoi(row["AmountCents"])
+			amt, err := parseIntStrict(row["AmountCents"])
+			if err != nil {
+				return nil, fmt.Errorf("row %d: AmountCents %q: %w", r.line, row["AmountCents"], err)
+			}
+			e.Amount = amt
 			e.IdentificationNumber = row["IdentificationNumber"]
 			e.IndividualName = row["IndividualName"]
 			e.DiscretionaryData = row["DiscretionaryData"]
@@ -254,4 +269,19 @@ func CSVHeader() []string {
 	out := make([]string, len(csvHeader))
 	copy(out, csvHeader)
 	return out
+}
+
+// parseIntStrict parses an integer exactly; empty or non-numeric input is
+// a hard error. The predecessor used strconv.Atoi with the error dropped,
+// so typos like "100X" silently became zero.
+func parseIntStrict(s string) (int, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, fmt.Errorf("missing value")
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, fmt.Errorf("not an integer")
+	}
+	return n, nil
 }

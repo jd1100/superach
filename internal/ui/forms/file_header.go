@@ -14,8 +14,8 @@ func FileHeaderForm(h *ach.FileHeader, save func()) fyne.CanvasObject {
 		widget.NewFormItem("Destination Name", stringEntry(h.ImmediateDestinationName, func(v string) { h.ImmediateDestinationName = v })),
 		widget.NewFormItem("Immediate Origin", stringEntry(h.ImmediateOrigin, func(v string) { h.ImmediateOrigin = v })),
 		widget.NewFormItem("Origin Name", stringEntry(h.ImmediateOriginName, func(v string) { h.ImmediateOriginName = v })),
-		widget.NewFormItem("File Creation Date (YYMMDD)", stringEntry(h.FileCreationDate, func(v string) { h.FileCreationDate = v })),
-		widget.NewFormItem("File Creation Time (HHmm)", stringEntry(h.FileCreationTime, func(v string) { h.FileCreationTime = v })),
+		widget.NewFormItem("File Creation Date (YYMMDD)", dateEntry(h.FileCreationDate, func(v string) { h.FileCreationDate = v })),
+		widget.NewFormItem("File Creation Time (HHmm)", timeEntry(h.FileCreationTime, func(v string) { h.FileCreationTime = v })),
 		widget.NewFormItem("File ID Modifier", stringEntry(h.FileIDModifier, func(v string) { h.FileIDModifier = v })),
 		widget.NewFormItem("Reference Code", stringEntry(h.ReferenceCode, func(v string) { h.ReferenceCode = v })),
 	)

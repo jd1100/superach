@@ -54,7 +54,7 @@ func BatchHeaderForm(h *ach.BatchHeader, save func()) fyne.CanvasObject {
 		widget.NewFormItem("Discretionary Data", stringEntry(h.CompanyDiscretionaryData, func(v string) { h.CompanyDiscretionaryData = v })),
 		widget.NewFormItem("Entry Description", stringEntry(h.CompanyEntryDescription, func(v string) { h.CompanyEntryDescription = v })),
 		widget.NewFormItem("Descriptive Date", stringEntry(h.CompanyDescriptiveDate, func(v string) { h.CompanyDescriptiveDate = v })),
-		widget.NewFormItem("Effective Entry Date (YYMMDD)", stringEntry(h.EffectiveEntryDate, func(v string) { h.EffectiveEntryDate = v })),
+		widget.NewFormItem("Effective Entry Date (YYMMDD)", dateEntry(h.EffectiveEntryDate, func(v string) { h.EffectiveEntryDate = v })),
 		widget.NewFormItem("ODFI Identification", stringEntry(h.ODFIIdentification, func(v string) { h.ODFIIdentification = v })),
 	)
 	attachSubmit(form, save)

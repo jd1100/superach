@@ -85,7 +85,7 @@ func Addenda99Form(a *ach.Addenda99, save func()) fyne.CanvasObject {
 	form := widget.NewForm(
 		widget.NewFormItem("Return Code", sel),
 		widget.NewFormItem("Original Trace #", stringEntry(a.OriginalTrace, func(v string) { a.OriginalTrace = v })),
-		widget.NewFormItem("Date of Death (YYMMDD)", stringEntry(a.DateOfDeath, func(v string) { a.DateOfDeath = v })),
+		widget.NewFormItem("Date of Death (YYMMDD)", dateEntry(a.DateOfDeath, func(v string) { a.DateOfDeath = v })),
 		widget.NewFormItem("Original DFI", stringEntry(a.OriginalDFI, func(v string) { a.OriginalDFI = v })),
 		widget.NewFormItem("Addenda Information", stringEntry(a.AddendaInformation, func(v string) { a.AddendaInformation = v })),
 		widget.NewFormItem("Trace Number", stringEntry(a.TraceNumber, func(v string) { a.TraceNumber = v })),
