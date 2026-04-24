@@ -1,0 +1,5 @@
+/dist/
+/fyne-cross/
+*.test
+*.out
+.DS_Store

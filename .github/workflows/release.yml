@@ -1,0 +1,103 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  darwin:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+      - name: Build macOS binary
+        env:
+          GOOS: darwin
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: 1
+        run: |
+          go build -trimpath -ldflags "-s -w" -o superach ./cmd/superach
+          zip -j superach-darwin-${{ matrix.arch }}.zip superach LICENSE NOTICE README.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: darwin-${{ matrix.arch }}
+          path: superach-darwin-${{ matrix.arch }}.zip
+
+  linux:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+      - name: Install Fyne system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev xorg-dev libxkbcommon-dev
+      - name: Build Linux binary
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: 1
+        run: |
+          go build -trimpath -ldflags "-s -w" -o superach ./cmd/superach
+          tar czf superach-linux-${{ matrix.arch }}.tar.gz superach LICENSE NOTICE README.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.arch }}
+          path: superach-linux-${{ matrix.arch }}.tar.gz
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+      - name: Build Windows binary
+        env:
+          CGO_ENABLED: 1
+        shell: bash
+        run: |
+          go build -trimpath -ldflags "-s -w -H=windowsgui" -o superach.exe ./cmd/superach
+          7z a superach-windows-amd64.zip superach.exe LICENSE NOTICE README.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-amd64
+          path: superach-windows-amd64.zip
+
+  release:
+    needs: [darwin, linux, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Flatten artifacts
+        run: |
+          mkdir -p release
+          find dist -type f \( -name '*.zip' -o -name '*.tar.gz' \) -exec cp {} release/ \;
+          cd release && sha256sum * > SHA256SUMS
+          ls -la
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.zip
+            release/*.tar.gz
+            release/SHA256SUMS
+          generate_release_notes: true
