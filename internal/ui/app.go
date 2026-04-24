@@ -79,10 +79,14 @@ func NewApp() *App {
 		},
 	)
 
-	// The recent-files submenu is the only part of the menu that depends on
-	// state, so compare MRU lists and rebuild only when it actually changed.
-	// This keeps Ctrl-click-heavy sessions (SetSelection fires every click)
-	// from thrashing the preferences file and reinstalling every shortcut.
+	// Persist the MRU list on change so Open Recent survives restarts, but
+	// do NOT call win.SetMainMenu again — a second SetMainMenu on macOS in
+	// Fyne v2.7.3 crashes with SIGSEGV in glfwPollEvents the next time the
+	// user opens any menu (fyne-io/fyne#6264: separator items are autoreleased
+	// but insertDarwinMenuItem releases them unconditionally, so resetDarwin
+	// Menu later dereferences freed pointers). The Open Recent submenu
+	// therefore reflects startup state plus whatever was persisted — the
+	// trade-off is acceptable vs. a hard crash.
 	lastRecent := a.state.RecentFiles()
 	state.Subscribe(func() {
 		forms.SetReadOnly(state.ReadOnly())
@@ -92,7 +96,6 @@ func NewApp() *App {
 		if !stringSliceEqual(cur, lastRecent) {
 			lastRecent = cur
 			a.persistRecent()
-			win.SetMainMenu(a.buildMenu())
 		}
 	})
 
