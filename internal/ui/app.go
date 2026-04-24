@@ -39,6 +39,11 @@ func Run() {
 // NewApp wires the window, menu, and layout but does not show the window.
 func NewApp() *App {
 	fyneApp := fyneapp.NewWithID("io.superach.app")
+	// Install a wrapping theme that keeps disabled/read-only widgets legible.
+	// Must run before any window or widget is built so the very first render
+	// already uses the higher-contrast disabled colors.
+	settings := fyneApp.Settings()
+	settings.SetTheme(&readableTheme{base: settings.Theme()})
 	state := NewState()
 	win := fyneApp.NewWindow("SuperACH — ACH Viewer & Editor")
 
