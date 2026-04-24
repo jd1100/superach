@@ -6,6 +6,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 	"github.com/moov-io/ach"
 
@@ -17,6 +18,10 @@ type Detail struct {
 	state     *AppState
 	container *fyne.Container
 	lastNode  Node
+	// parent is the window used to surface dialog.ShowError when a form
+	// save fails (e.g. recalculate rejects a half-valid edit). When nil,
+	// save errors are silently dropped.
+	parent fyne.Window
 }
 
 // NewDetail wires the detail pane up to the state so it re-renders on change.
@@ -25,6 +30,10 @@ func NewDetail(s *AppState) *Detail {
 	d.render(Node{Kind: NodeFile})
 	return d
 }
+
+// AttachParent records the window used to report save/recalculate errors.
+// Called from NewApp once the window exists.
+func (d *Detail) AttachParent(w fyne.Window) { d.parent = w }
 
 // CanvasObject returns the wrapped Fyne container.
 func (d *Detail) CanvasObject() fyne.CanvasObject { return d.container }
@@ -48,7 +57,11 @@ func (d *Detail) render(n Node) {
 		if d.state.ReadOnly() {
 			return
 		}
-		_ = d.state.Mutate(func(_ *ach.File) error { return nil })
+		// Recalculate / clone / read-only errors bubble up here; surfacing
+		// them is the whole point of plumbing Mutate's error through.
+		if err := d.state.Mutate(func(_ *ach.File) error { return nil }); err != nil && d.parent != nil {
+			dialog.ShowError(err, d.parent)
+		}
 	}
 
 	var obj fyne.CanvasObject

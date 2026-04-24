@@ -1,13 +1,17 @@
 package dialogs
 
 import (
+	"errors"
 	"strconv"
+	"strings"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 	"github.com/moov-io/ach"
+
+	"github.com/jd1100/superach/internal/ui/forms"
 )
 
 // NewBatch pops the "New Batch" dialog and calls onCreate when the user
@@ -29,10 +33,21 @@ func NewBatch(parent fyne.Window, onCreate func(sec, company, companyID, effecti
 
 	company := widget.NewEntry()
 	companyID := widget.NewEntry()
+	companyID.Validator = func(s string) error {
+		if strings.TrimSpace(s) == "" {
+			return errors.New("required")
+		}
+		if len(s) > 10 {
+			return errors.New("max 10 chars")
+		}
+		return nil
+	}
 	effective := widget.NewEntry()
 	effective.SetPlaceHolder("YYMMDD")
+	effective.Validator = requiredDate
 	odfi := widget.NewEntry()
 	odfi.SetPlaceHolder("8-digit ODFI ID")
+	odfi.Validator = func(s string) error { return forms.ValidateDigitsLen(s, 8) }
 
 	form := widget.NewForm(
 		widget.NewFormItem("SEC Code", secSel),
@@ -49,10 +64,32 @@ func NewBatch(parent fyne.Window, onCreate func(sec, company, companyID, effecti
 			if !confirm {
 				return
 			}
+			// dialog.NewCustomConfirm doesn't block OK on invalid state, so
+			// re-run each validator here and abort on first failure.
+			for _, v := range []*widget.Entry{company, companyID, effective, odfi} {
+				if v.Validator != nil {
+					if err := v.Validator(v.Text); err != nil {
+						dialog.ShowError(err, parent)
+						return
+					}
+				}
+			}
 			onCreate(secSel.Selected, company.Text, companyID.Text, effective.Text, odfi.Text, svcFromLabel(svcSel.Selected))
 		}, parent)
-	d.Resize(fyne.NewSize(420, 320))
+	d.Resize(fyne.NewSize(420, 340))
 	d.Show()
+	// Focus the first user-typed field so the keyboard lands in a usable
+	// place — SEC / Service Class have sensible defaults already.
+	if canvas := parent.Canvas(); canvas != nil {
+		canvas.Focus(company)
+	}
+}
+
+func requiredDate(s string) error {
+	if strings.TrimSpace(s) == "" {
+		return errors.New("required")
+	}
+	return forms.ValidateYYMMDD(s)
 }
 
 func svcFromLabel(s string) int {

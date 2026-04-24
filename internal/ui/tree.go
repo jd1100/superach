@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -10,11 +11,67 @@ import (
 	"github.com/moov-io/ach"
 )
 
+// treeFilter caches the active filter plus the set of node IDs that match
+// it. Without the cache, Fyne's per-branch visibleChildIDs calls would
+// rewalk the whole tree on every keystroke.
+type treeFilter struct {
+	mu      sync.Mutex
+	query   string
+	visible map[string]bool // nil when query == ""; otherwise the matching-plus-ancestor set
+}
+
+var filter treeFilter
+
+func setFilter(q string) {
+	q = strings.TrimSpace(strings.ToLower(q))
+	filter.mu.Lock()
+	filter.query = q
+	filter.visible = nil
+	filter.mu.Unlock()
+}
+
+func invalidateFilter() {
+	filter.mu.Lock()
+	filter.visible = nil
+	filter.mu.Unlock()
+}
+
+func visibleSet(f *ach.File) map[string]bool {
+	filter.mu.Lock()
+	defer filter.mu.Unlock()
+	if filter.query == "" {
+		return nil
+	}
+	if filter.visible != nil {
+		return filter.visible
+	}
+	vis := map[string]bool{}
+	var walk func(id string) bool
+	walk = func(id string) bool {
+		hit := false
+		if id != "" && strings.Contains(strings.ToLower(labelFor(f, id)), filter.query) {
+			hit = true
+		}
+		for _, c := range childIDs(f, id) {
+			if walk(c) {
+				hit = true
+			}
+		}
+		if hit && id != "" {
+			vis[id] = true
+		}
+		return hit
+	}
+	walk("")
+	filter.visible = vis
+	return vis
+}
+
 // BuildTree constructs the left-pane tree over the current state's file.
 // onSelect is invoked with the Node that was selected (empty string path = file root).
 func BuildTree(s *AppState, onSelect func(Node)) *widget.Tree {
 	tree := widget.NewTree(
-		func(id widget.TreeNodeID) []widget.TreeNodeID { return childIDs(s.File(), id) },
+		func(id widget.TreeNodeID) []widget.TreeNodeID { return visibleChildIDs(s.File(), id) },
 		func(id widget.TreeNodeID) bool { return isBranch(s.File(), id) },
 		func(branch bool) fyne.CanvasObject {
 			return widget.NewLabel("template template template template")
@@ -32,8 +89,27 @@ func BuildTree(s *AppState, onSelect func(Node)) *widget.Tree {
 		s.SetSelection(id)
 		onSelect(n)
 	}
-	s.Subscribe(func() { tree.Refresh() })
+	// Any state change may have touched the file, invalidating the cache.
+	s.Subscribe(func() {
+		invalidateFilter()
+		tree.Refresh()
+	})
 	return tree
+}
+
+func visibleChildIDs(f *ach.File, id widget.TreeNodeID) []string {
+	all := childIDs(f, id)
+	vis := visibleSet(f)
+	if vis == nil {
+		return all
+	}
+	out := make([]string, 0, len(all))
+	for _, c := range all {
+		if vis[c] {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 func isBranch(f *ach.File, id string) bool {
@@ -257,9 +333,13 @@ func formatAmount(cents int) string {
 	return fmt.Sprintf("%s%d.%02d", neg, dollars, rem)
 }
 
-// wrapTree lets callers pack the tree into a scrollable, titled container.
-func wrapTree(t *widget.Tree) fyne.CanvasObject {
-	return container.NewBorder(
+// wrapTree packs the tree into a scrollable, titled container with a filter
+// search bar at the top. The returned entry is stored on the App so Ctrl+F
+// can focus it.
+func wrapTree(t *widget.Tree, search *widget.Entry) fyne.CanvasObject {
+	header := container.NewVBox(
 		widget.NewLabelWithStyle("Structure", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		nil, nil, nil, t)
+		search,
+	)
+	return container.NewBorder(header, nil, nil, nil, t)
 }

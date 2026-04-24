@@ -1,6 +1,9 @@
 package forms
 
 import (
+	"errors"
+	"strings"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/widget"
 	"github.com/moov-io/ach"
@@ -17,6 +20,63 @@ var txnCodeOptions = []string{
 	"38 — Savings Prenote Debit",
 }
 
+// routingEntry wires the RDFI routing field with strict 8-digit validation.
+// A separate compute button (see withCopyAndCompute) fills the paired check
+// digit explicitly, so a freshly-typed 8-digit routing never clobbers a
+// user-typed check digit automatically.
+func routingEntry(cur string, set func(string)) *widget.Entry {
+	e := widget.NewEntry()
+	e.SetText(cur)
+	if readOnly.Load() {
+		e.Disable()
+		return e
+	}
+	e.Validator = func(s string) error {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return errors.New("routing required")
+		}
+		if !allDigits(s) {
+			return errors.New("digits only")
+		}
+		if len(s) != 8 {
+			return errors.New("must be 8 digits")
+		}
+		return nil
+	}
+	e.OnChanged = set
+	return e
+}
+
+// checkDigitEntry flags an ABA checksum mismatch between the user's routing
+// number and the check digit. Validation is silent until both fields are
+// filled with a plausible shape — we don't want red underlines while the
+// user is mid-typing.
+func checkDigitEntry(cur string, getRouting func() string, set func(string)) *widget.Entry {
+	e := widget.NewEntry()
+	e.SetText(cur)
+	if readOnly.Load() {
+		e.Disable()
+		return e
+	}
+	e.Validator = func(s string) error {
+		s = strings.TrimSpace(s)
+		if s == "" || !allDigits(s) || len(s) != 1 {
+			return errors.New("one digit")
+		}
+		r := strings.TrimSpace(getRouting())
+		if len(r) != 8 || !allDigits(r) {
+			return nil
+		}
+		if err := ach.CheckRoutingNumber(r + s); err != nil {
+			return errors.New("ABA checksum mismatch")
+		}
+		return nil
+	}
+	e.OnChanged = set
+	return e
+}
+
 func EntryDetailForm(e *ach.EntryDetail, save func()) fyne.CanvasObject {
 	if e == nil {
 		return widget.NewLabel("(no entry)")
@@ -24,23 +84,18 @@ func EntryDetailForm(e *ach.EntryDetail, save func()) fyne.CanvasObject {
 	txn := selectField(labelForTxn(e.TransactionCode), txnCodeOptions, func(s string) {
 		e.TransactionCode = intFromLabel(s, e.TransactionCode)
 	})
+	routing := routingEntry(e.RDFIIdentification, func(v string) { e.RDFIIdentification = v })
+	checkDigit := checkDigitEntry(e.CheckDigit, func() string { return e.RDFIIdentification }, func(v string) { e.CheckDigit = v })
 	form := widget.NewForm(
 		widget.NewFormItem("Transaction Code", txn),
-		widget.NewFormItem("RDFI Routing (8)", stringEntry(e.RDFIIdentification, func(v string) {
-			e.RDFIIdentification = v
-			if len(v) == 8 {
-				if cd := ach.CalculateCheckDigit(v + "0"); cd >= 0 {
-					e.CheckDigit = itoa(cd)
-				}
-			}
-		})),
-		widget.NewFormItem("Check Digit", stringEntry(e.CheckDigit, func(v string) { e.CheckDigit = v })),
-		widget.NewFormItem("DFI Account #", stringEntry(e.DFIAccountNumber, func(v string) { e.DFIAccountNumber = v })),
+		widget.NewFormItem("RDFI Routing (8)", withCopyAndCompute(routing, checkDigit)),
+		widget.NewFormItem("Check Digit", checkDigit),
+		widget.NewFormItem("DFI Account #", withCopy(stringEntry(e.DFIAccountNumber, func(v string) { e.DFIAccountNumber = v }))),
 		widget.NewFormItem("Amount ($)", amountEntry(e.Amount, func(v int) { e.Amount = v })),
 		widget.NewFormItem("Identification #", stringEntry(e.IdentificationNumber, func(v string) { e.IdentificationNumber = v })),
 		widget.NewFormItem("Individual Name", stringEntry(e.IndividualName, func(v string) { e.IndividualName = v })),
 		widget.NewFormItem("Discretionary Data", stringEntry(e.DiscretionaryData, func(v string) { e.DiscretionaryData = v })),
-		widget.NewFormItem("Trace Number", stringEntry(e.TraceNumber, func(v string) { e.TraceNumber = v })),
+		widget.NewFormItem("Trace Number", withCopy(stringEntry(e.TraceNumber, func(v string) { e.TraceNumber = v }))),
 		widget.NewFormItem("Category", stringEntry(e.Category, func(v string) { e.Category = v })),
 	)
 	attachSubmit(form, save)
@@ -66,27 +121,4 @@ func intFromLabel(s string, fallback int) int {
 		return fallback
 	}
 	return d1*10 + d2
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	neg := false
-	if n < 0 {
-		neg = true
-		n = -n
-	}
-	buf := [12]byte{}
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	if neg {
-		i--
-		buf[i] = '-'
-	}
-	return string(buf[i:])
 }

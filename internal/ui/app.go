@@ -24,6 +24,7 @@ type App struct {
 	state       *AppState
 	detail      *Detail
 	tree        *widget.Tree
+	searchEntry *widget.Entry
 	statusLabel *widget.Label
 	errorList   *widget.List
 	errors      []achio.FieldError
@@ -52,8 +53,21 @@ func NewApp() *App {
 	// form is built so widgets come up disabled from the first render.
 	forms.SetReadOnly(state.ReadOnly())
 
+	// Restore MRU list from Fyne preferences so the recent-files menu
+	// survives restarts.
+	if paths := fyneApp.Preferences().StringList(prefRecentFiles); len(paths) > 0 {
+		state.SetRecentFiles(paths)
+	}
+
 	a.detail = NewDetail(state)
+	a.detail.AttachParent(win)
 	a.tree = BuildTree(state, func(n Node) { a.detail.Render(n) })
+	a.searchEntry = widget.NewEntry()
+	a.searchEntry.SetPlaceHolder("Filter: trace #, name, amount…")
+	a.searchEntry.OnChanged = func(q string) {
+		setFilter(q) // invalidates the memoized visible set
+		a.tree.Refresh()
+	}
 	a.errorList = widget.NewList(
 		func() int { return len(a.errors) },
 		func() fyne.CanvasObject { return widget.NewLabel("") },
@@ -65,13 +79,24 @@ func NewApp() *App {
 		},
 	)
 
+	// The recent-files submenu is the only part of the menu that depends on
+	// state, so compare MRU lists and rebuild only when it actually changed.
+	// This keeps Ctrl-click-heavy sessions (SetSelection fires every click)
+	// from thrashing the preferences file and reinstalling every shortcut.
+	lastRecent := a.state.RecentFiles()
 	state.Subscribe(func() {
 		forms.SetReadOnly(state.ReadOnly())
 		a.refreshTitle()
 		a.refreshErrors()
+		cur := a.state.RecentFiles()
+		if !stringSliceEqual(cur, lastRecent) {
+			lastRecent = cur
+			a.persistRecent()
+			win.SetMainMenu(a.buildMenu())
+		}
 	})
 
-	split := container.NewHSplit(wrapTree(a.tree), a.detail.CanvasObject())
+	split := container.NewHSplit(wrapTree(a.tree, a.searchEntry), a.detail.CanvasObject())
 	split.Offset = 0.32
 
 	errPane := container.NewBorder(
@@ -80,11 +105,35 @@ func NewApp() *App {
 	body := container.NewVSplit(split, errPane)
 	body.Offset = 0.78
 
+	// Menu construction also registers keyboard shortcuts on the canvas, so
+	// it has to come after the window exists.
 	win.SetMainMenu(a.buildMenu())
 	win.SetContent(container.NewBorder(nil, a.statusLabel, nil, nil, body))
 	win.Resize(fyne.NewSize(1280, 820))
+	win.SetCloseIntercept(func() {
+		a.confirmDiscard(func() { win.Close() })
+	})
 	a.refreshTitle()
 	return a
+}
+
+// persistRecent writes the MRU list to Fyne preferences so it survives restarts.
+func (a *App) persistRecent() {
+	a.fyneApp.Preferences().SetStringList(prefRecentFiles, a.state.RecentFiles())
+}
+
+const prefRecentFiles = "recentFiles"
+
+func stringSliceEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // Window exposes the underlying Fyne window (useful for tests).
@@ -163,11 +212,32 @@ func fileSummary(f *ach.File) string {
 func (a *App) loadPath(path string) {
 	f, err := achio.ReadFile(path)
 	if err != nil {
-		dialog.ShowError(err, a.window)
+		dialog.ShowError(friendlyReadError(path, err), a.window)
 		return
 	}
 	a.state.LoadFile(f, path)
 	a.statusLabel.SetText("Loaded " + filepath.Base(path))
+}
+
+// friendlyReadError wraps moov-io/ach parse failures with a user-actionable
+// hint. The underlying library returns messages like "invalid record type
+// 'F'" which don't point at the fix.
+func friendlyReadError(path string, err error) error {
+	msg := err.Error()
+	hint := ""
+	switch {
+	case strings.Contains(msg, "invalid record type"):
+		hint = "— likely not a NACHA ACH file, or the file is truncated/corrupted. " +
+			"If this is a JSON export, rename it to end in .json and retry."
+	case strings.Contains(msg, "unexpected EOF"):
+		hint = "— the file ended mid-record. Ask the sender to re-export."
+	case strings.Contains(msg, "permission denied"):
+		hint = "— no read permission. Check the file's owner/group."
+	}
+	if hint == "" {
+		return fmt.Errorf("could not read %s: %w", filepath.Base(path), err)
+	}
+	return fmt.Errorf("could not read %s: %w %s", filepath.Base(path), err, hint)
 }
 
 func (a *App) savePath(path string) {
@@ -176,7 +246,7 @@ func (a *App) savePath(path string) {
 		return
 	}
 	if err := achio.WriteFile(path, f); err != nil {
-		dialog.ShowError(err, a.window)
+		dialog.ShowError(fmt.Errorf("could not write %s: %w", filepath.Base(path), err), a.window)
 		return
 	}
 	a.state.MarkSaved(path)
