@@ -5,6 +5,9 @@ BIN      := superach
 DIST     := dist
 VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS  := -s -w -X main.version=$(VERSION)
+# .exe on Windows, empty elsewhere. `go build -o` does NOT auto-append this
+# when -o is passed explicitly, so we have to do it ourselves.
+GOEXE    := $(shell go env GOEXE)
 
 .PHONY: help run test vet build build-all clean install-fyne-cross package check-cgo
 
@@ -53,7 +56,7 @@ $(DIST):
 	mkdir -p $(DIST)
 
 build: check-cgo $(DIST)
-	go build -trimpath -ldflags "$(LDFLAGS)" -o $(DIST)/$(BIN) ./cmd/superach
+	go build -trimpath -ldflags "$(LDFLAGS)" -o $(DIST)/$(BIN)$(GOEXE) ./cmd/superach
 
 install-fyne-cross:
 	go install github.com/fyne-io/fyne-cross@latest
